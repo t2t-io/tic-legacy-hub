@@ -1,0 +1,47 @@
+{
+  "name": "tic-legacy-hub",
+  "author": {
+    "name": "yagamy",
+    "email": "yagamy@t2t.io"
+  },
+  "description": "SensorHub Simple Server for V1 (Legacy) Data Format from TOE devices",
+  "version": "0.0.1",
+  "repository": {
+    "type": "git",
+    "url": ""
+  },
+  "engines": {
+    "node": "4.4.x"
+  },
+  "ava": {
+    "files": [
+      "tests/*.js",
+      "test/*.js"
+    ]
+  },
+  "scripts": {
+    "test": "dms db delete sandbox && lsc -c ./tests/*.ls && ava --verbose"
+  },
+  "dependencies": {
+    "colors": "*",
+    "async": "*",
+    "lodash": "*",
+    "yargs": "*",
+    "express": "*",
+    "multer": "*",
+    "prettyjson": "*",
+    "moment-timezone": "*",
+    "bunyan-rotating-file-stream": "*",
+    "bunyan-debug-stream": "*",
+    "express-bunyan-logger": "*"
+  },
+  "devDependencies": {
+    "ava": "^0.24.0"
+  },
+  "keywords": [
+    "tic",
+    "sensorhub",
+    "legacy"
+  ],
+  "license": "MIT"
+}
