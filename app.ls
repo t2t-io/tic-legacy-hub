@@ -4,6 +4,8 @@ require! <[fs path http zlib]>
 require! <[colors yargs express multer prettyjson]>
 moment = require \moment-timezone
 
+const ONE_MONTH = 30 * 24 * 60 * 60 * 1000
+
 
 class DataItem
   (@profile, @id, @item) ->
@@ -24,7 +26,8 @@ class DataItem
     @sensor = sensor
     @data_type = data_type
     @updated_at = updated_at
-    @time_shifts = [updated_at - now]
+    @time_shift = ts = now - updated_at
+    @time_shifts = [ts]
     @type = type
     @invalid = no
     p = "#{board_type}/#{board_id}/#{sensor}/#{data_type}"
@@ -39,10 +42,12 @@ class DataItem
     return ret
 
   is-broadcastable: ->
-    {invalid, board_type, board_id, sensor, data_type, updated_at, now, value, type} = @
+    {invalid, board_type, board_id, sensor, data_type, updated_at, now, value, type, time_shift} = @
     return @.show-message "invalid data item" if invalid
     return @.show-message "value is NULL" unless value?
     return @.show-message "value is STRING" if \string is typeof value
+    return @.show-message "data comes from future. #{updated_at} v.s. #{now}" if time_shift < 0
+    return @.show-message "data came from one month ago. #{updated_at} v.s. #{now}" if time_shifts > ONE_MONTH
     return yes
 
   to-array: ->
