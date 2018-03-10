@@ -5,6 +5,7 @@ require! <[colors yargs express multer prettyjson]>
 moment = require \moment-timezone
 
 const ONE_MONTH = 30 * 24 * 60 * 60 * 1000
+const ONE_HOUR = 60 * 60 * 1000
 
 
 class DataItem
@@ -18,7 +19,7 @@ class DataItem
     return unless sensor? and \string is typeof sensor
     return unless data_type? and \string is typeof data_type
     return unless updated_at? and \string is typeof updated_at
-    now = (new Date!) - 0
+    @now = now = (new Date!) - 0
     updated_at = Date.parse updated_at
     return if updated_at === NaN
     @board_type = board_type
@@ -42,12 +43,12 @@ class DataItem
     return ret
 
   is-broadcastable: ->
-    {invalid, board_type, board_id, sensor, data_type, updated_at, now, value, type, time_shift} = @
+    {invalid, board_type, board_id, sensor, data_type, updated_at, now, value, type, time_shift, now} = @
     return @.show-message "invalid data item" if invalid
     return @.show-message "value is NULL" unless value?
     return @.show-message "value is STRING" if \string is typeof value
-    return @.show-message "data comes from future. #{updated_at} v.s. #{now}" if time_shift < 0
-    return @.show-message "data came from one month ago. #{updated_at} v.s. #{now}" if time_shifts > ONE_MONTH
+    return @.show-message "data comes from future (at least one hour later). #{updated_at} v.s. #{now}" if (time_shift + ONE_HOUR) < 0
+    return @.show-message "data came from one month ago. #{updated_at} v.s. #{now}" if time_shift > ONE_MONTH
     return yes
 
   to-array: ->
