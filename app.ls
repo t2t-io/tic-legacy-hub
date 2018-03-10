@@ -6,17 +6,17 @@ moment = require \moment-timezone
 
 
 class DataItem
-  (@item) ->
+  (@profile, @id, @item) ->
     {desc, data} = item
     {board_type, board_id, sensor, data_type} = desc
     {updated_at, value, type, unit_length} = data
-    @now = (new Date!) - 0
     @invalid = yes
     return unless board_type? and \string is typeof board_type
     return unless board_id? and \string is typeof board_id
     return unless sensor? and \string is typeof sensor
     return unless data_type? and \string is typeof data_type
     return unless updated_at? and \string is typeof updated_at
+    now = (new Date!) - 0
     updated_at = Date.parse updated_at
     return if updated_at === NaN
     @board_type = board_type
@@ -24,17 +24,30 @@ class DataItem
     @sensor = sensor
     @data_type = data_type
     @updated_at = updated_at
-    @value = value
+    @time_shifts = [updated_at - now]
     @type = type
     @invalid = no
-
-  to-array: (ignore-str-value=no, ignore-null-value=yes) ->
-    {invalid, board_type, board_id, sensor, data_type, updated_at, now, value, type} = self = @
-    return null if invalid
-    return null if ignore-null-value and not value?
-    return null if ignore-str-value and \string is type
+    p = "#{board_type}/#{board_id}/#{sensor}/#{data_type}"
+    @prefix = "[#{id.yellow}.#{updated_at}] #{p.green}"
     value = parseFloat value.toFixed 2 if \process is board_type and \number is type
-    return [updated_at, (now - updated_at), board_type, board_id, sensor, data_type, value]
+    @value = value
+
+  show-message: (message, ret=no) ->
+    {verbose} = global.argv
+    return unless verbose
+    INFO "#{@prefix} => #{message.gray}"
+    return ret
+
+  is-broadcastable: ->
+    {invalid, board_type, board_id, sensor, data_type, updated_at, now, value, type} = @
+    return @.show-message "invalid data item" if invalid
+    return @.show-message "value is NULL" unless value?
+    return @.show-message "value is STRING" if \string is typeof value
+    return yes
+
+  to-array: ->
+    {board_type, board_id, sensor, data_type, updated_at, value, time_shifts} = self = @
+    return [updated_at, board_type, board_id, sensor, data_type, value, time_shifts]
 
 
 NG = (message, code, status, req, res) ->
@@ -54,6 +67,22 @@ ERR = (message) ->
   console.log "#{now.format!} [ERR ] #{message}"
 
 
+DUMP_ITEMS = (items) ->
+  {dump} = global.argv
+  return unless dump
+  text = prettyjson.render items, do
+    keysColor: \gray
+    dashColor: \green
+    stringColor: \yellow
+    numberColor: \cyan
+    defaultIndentation: 4
+    inlineArrays: yes
+  zs = text.split '\n'
+  # console.error "#{profile.yellow}/#{id.green}:"
+  [ console.error "\t#{z}" for z in zs ]
+
+
+
 PROCESS_COMPRESSED_DATA = (originalname, buffer, id, profile, req, res) ->
   x = "#{buffer.length}"
   INFO "#{profile.cyan}/#{id.yellow}/#{originalname.green} => receive #{x.magenta} bytes"
@@ -68,7 +97,8 @@ PROCESS_COMPRESSED_DATA = (originalname, buffer, id, profile, req, res) ->
     #
     return NG message, -2, 200, req, res
   else
-    x = "#{raw.length}"
+    raw-size = raw.length
+    x = "#{raw-size}"
     INFO "#{profile.cyan}/#{id.yellow}/#{originalname.green} => decompress to #{x.magenta} bytes"
     text = "#{raw}"
     try
@@ -85,19 +115,14 @@ PROCESS_COMPRESSED_DATA = (originalname, buffer, id, profile, req, res) ->
     buffer = null
     raw = null
     {items} = data
-    xs = [ (new DataItem i) for i in items ]
-    ys = [ (x.to-array yes) for x in xs ]
-    ys = [ y for y in ys when y? ]
-    text = prettyjson.render ys, do
-      keysColor: \gray
-      dashColor: \green
-      stringColor: \yellow
-      numberColor: \cyan
-      defaultIndentation: 4
-      inlineArrays: yes
-    zs = text.split '\n'
-    # console.error "#{profile.yellow}/#{id.green}:"
-    [ console.error "\t#{z}" for z in zs ]
+    # console.log JSON.stringify items
+    xs = [ (new DataItem profile, id, i) for i in items ]
+    ys = [ (x.to-array!) for x in xs when x.is-broadcastable! ]
+    zs = JSON.stringify ys
+    size = "#{zs.length}"
+    ratio = (zs.length * 100 / raw-size).toFixed 2
+    INFO "#{profile.cyan}/#{id.yellow}/#{originalname.green} => transform to #{size.magenta} bytes (#{ratio.red}%)"
+    DUMP_ITEMS ys
 
 
 PROCESS_JSON_GZ = (req, res) ->
@@ -124,11 +149,17 @@ PROCESS_JSON_GZ = (req, res) ->
     return PROCESS_COMPRESSED_DATA originalname, buffer, id, profile, req, res
 
 
-argv = yargs
+argv = global.argv = yargs
   .alias \p, \port
   .describe \p, 'port number to listen'
   .default \p, 7000
-  .demandOption <[port]>
+  .alias \v, \verbose
+  .describe \v, 'enable verbose outputs'
+  .default \v, no
+  .alias \d, \dump
+  .describe \d, 'enable data dump on console before forwarding'
+  .default \d, no
+  .demandOption <[port verbose dump]>
   .strict!
   .help!
   .argv
