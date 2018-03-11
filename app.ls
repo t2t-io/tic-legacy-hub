@@ -1,7 +1,7 @@
 #!/usr/bin/env lsc
 #
 require! <[fs path http zlib]>
-require! <[colors yargs express multer prettyjson]>
+require! <[colors yargs express multer prettyjson body-parser request]>
 moment = require \moment-timezone
 
 const ONE_MONTH = 30 * 24 * 60 * 60 * 1000
@@ -50,6 +50,11 @@ class DataItem
     return @.show-message "data comes from future (at least one hour later). #{updated_at} v.s. #{now}" if (time_shift + ONE_HOUR) < 0
     return @.show-message "data came from one month ago. #{updated_at} v.s. #{now}" if time_shift > ONE_MONTH
     return yes
+    # [TODO]
+    # 1. ignore when the value isn't changed, for past 60 seconds
+    # 2. aggregate the last one value
+    # 3. transform to new schema
+    # 4. chain to next server
 
   to-array: ->
     {board_type, board_id, sensor, data_type, updated_at, value, time_shifts} = self = @
@@ -88,6 +93,20 @@ DUMP_ITEMS = (items) ->
   [ console.error "\t#{z}" for z in zs ]
 
 
+SEND_TO_NEXT1 = (profile, id, items) ->
+  {NS1} = process.env
+  return unless NS1?
+  url = "#{NS1}/next1/#{profile}/#{id}"
+  req =
+    url: url
+    method: \POST
+    json: yes
+    body: items
+  (err, rsp, body) <- request.post req
+  return ERR "failed to send to #{url}, #{err}" if err?
+  return ERR "unexpected return code: #{rsp.statusCode}, for #{url}" unless rsp.statusCode is 200
+  return
+
 
 PROCESS_COMPRESSED_DATA = (originalname, buffer, id, profile, req, res) ->
   x = "#{buffer.length}"
@@ -121,7 +140,7 @@ PROCESS_COMPRESSED_DATA = (originalname, buffer, id, profile, req, res) ->
     buffer = null
     raw = null
     {items} = data
-    # console.log JSON.stringify items
+    return unless items? and items.length > 0
     xs = [ (new DataItem profile, id, i) for i in items ]
     ys = [ (x.to-array!) for x in xs when x.is-broadcastable! ]
     zs = JSON.stringify ys
@@ -129,6 +148,7 @@ PROCESS_COMPRESSED_DATA = (originalname, buffer, id, profile, req, res) ->
     ratio = (zs.length * 100 / raw-size).toFixed 2
     INFO "#{profile.cyan}/#{id.yellow}/#{originalname.green} => transform to #{size.magenta} bytes (#{ratio.red}%)"
     DUMP_ITEMS ys
+    SEND_TO_NEXT1 profile, id, ys
 
 
 PROCESS_JSON_GZ = (req, res) ->
@@ -155,6 +175,14 @@ PROCESS_JSON_GZ = (req, res) ->
     return PROCESS_COMPRESSED_DATA originalname, buffer, id, profile, req, res
 
 
+PROCESS_NEXT1 = (req, res) ->
+  {body, params} = req
+  {profile, id} = params
+  INFO "next1-server => #{profile.cyan}/#{id.yellow}"
+  res.end!
+  return DUMP_ITEMS body
+
+
 argv = global.argv = yargs
   .alias \p, \port
   .describe \p, 'port number to listen'
@@ -171,10 +199,13 @@ argv = global.argv = yargs
   .argv
 
 upload = multer {storage: multer.memoryStorage!}
+j = body-parser.json!
 
 web = express!
 web.set 'trust proxy', true
 web.post '/api/v1/hub/:id/:profile', (upload.single \sensor_data_gz), PROCESS_JSON_GZ
+
+web.post '/next1/:profile/:id', j, PROCESS_NEXT1
 
 HOST = \0.0.0.0
 PORT = argv.port

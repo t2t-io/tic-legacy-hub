@@ -27,13 +27,15 @@
     "async": "*",
     "lodash": "*",
     "yargs": "*",
+    "request": "*",
     "express": "*",
     "multer": "*",
     "prettyjson": "*",
     "moment-timezone": "*",
     "bunyan-rotating-file-stream": "*",
     "bunyan-debug-stream": "*",
-    "express-bunyan-logger": "*"
+    "express-bunyan-logger": "*",
+    "body-parser": "*"
   },
   "devDependencies": {
     "ava": "^0.24.0"

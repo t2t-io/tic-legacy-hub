@@ -48,6 +48,7 @@ dependencies:
   async: \*
   lodash: \*
   yargs: \*
+  request: \*
   express: \*
   multer: \*
   prettyjson: \*
@@ -55,6 +56,7 @@ dependencies:
   \bunyan-rotating-file-stream : \*
   \bunyan-debug-stream : \*
   \express-bunyan-logger : \*
+  \body-parser : \*
 
 
 devDependencies:
