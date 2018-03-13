@@ -6,6 +6,86 @@ moment = require \moment-timezone
 
 const ONE_MONTH = 30 * 24 * 60 * 60 * 1000
 const ONE_HOUR = 60 * 60 * 1000
+const NS2_FIELD_NAME = \sensor_csv_gz
+
+NG = (message, code, status, req, res) ->
+  {configs} = module
+  url = req.originalUrl
+  result = {url, code, message, configs}
+  return res.status status .json result
+
+
+INFO = (message) ->
+  now = moment!
+  console.log "#{now.format 'MMM/DD HH:mm:ss.SSS'} [INFO] #{message}"
+
+
+ERR = (message) ->
+  now = moment!
+  console.log "#{now.format 'MMM/DD HH:mm:ss.SSS'} [ERR ] #{message}"
+
+
+
+class DataNode
+  (@profile, @id, @p) ->
+    @kvs = {}
+    @updated_at = null
+    @time_shifts = null
+    return
+
+  show-message: (message) ->
+    {profile, id, p} = self = @
+    {verbose} = global.argv
+    return unless verbose
+    INFO "[#{id.yellow}] #{p.green} => #{message.gray}"
+
+  update: (updated_at, data_type, value, time_shifts) ->
+    {kvs} = self = @
+    d1 = {updated_at, data_type, value, time_shifts}
+    if not self.updated_at?
+      self.updated_at = updated_at
+      self.time_shifts = time_shifts
+    d0 = kvs[data_type]
+    self.show-message "#{data_type}: ignore old value `#{d0.value}` at #{d0.updated_at}ms" if d0?
+    kvs[data_type] = d1
+
+  serialize: ->
+    {updated_at, p, kvs, time_shifts} = self = @
+    # ys = [ "#{ts}" for ts in time_shifts ]
+    # ys = ys.join ','
+    ks = { [k, v.value] for k, v of kvs }
+    # pairs = JSON.stringify ks
+    pairs = [ "#{k}=#{v}" for k, v of ks ]
+    xs = ["#{updated_at}", "#{time_shifts[0]}", p] ++ pairs
+    return xs.join '\t'
+
+
+class DataAggregator
+  (@profile, @id) ->
+    @pathes = {}
+    return
+
+  show-message: (message, ret=no, p="") ->
+    {profile, id} = self = @
+    {verbose} = global.argv
+    return unless verbose
+    INFO "[#{id.yellow}.#{updated_at}] #{p.green} => #{message.gray}"
+    return ret
+
+  update: (@items) ->
+    {profile, id, pathes} = self = @
+    for i in items
+      [updated_at, board_type, board_id, sensor, data_type, value, time_shifts] = i
+      p = "#{board_type}/#{board_id}/#{sensor}"
+      node = pathes[p]
+      node = new DataNode profile, id, p unless node?
+      node.update updated_at, data_type, value, time_shifts
+      pathes[p] = node
+
+  serialize: ->
+    {pathes} = self = @
+    xs = [ (p.serialize!) for k, p of pathes ]
+    return xs
 
 
 class DataItem
@@ -61,23 +141,6 @@ class DataItem
     return [updated_at, board_type, board_id, sensor, data_type, value, time_shifts]
 
 
-NG = (message, code, status, req, res) ->
-  {configs} = module
-  url = req.originalUrl
-  result = {url, code, message, configs}
-  return res.status status .json result
-
-
-INFO = (message) ->
-  now = moment!
-  console.log "#{now.format!} [INFO] #{message}"
-
-
-ERR = (message) ->
-  now = moment!
-  console.log "#{now.format!} [ERR ] #{message}"
-
-
 DUMP_ITEMS = (items) ->
   {dump} = global.argv
   return unless dump
@@ -108,8 +171,26 @@ SEND_TO_NEXT1 = (profile, id, items) ->
   return
 
 
+SEND_TO_NEXT2 = (profile, id, bytes) ->
+  {NS2} = process.env
+  return unless NS2?
+  formData =
+    sensor_csv_gz:
+      value: bytes
+      options: {filename: "/tmp/#{profile}-#{id}.csv.gz", contentType: 'application/gzip'}
+  url = "#{NS2}/next2/#{profile}/#{id}"
+  opts = {url, formData}
+  INFO "delivering #{bytes.length} bytes to #{url} ..."
+  (err, rsp, body) <- request.post opts
+  return ERR "failed to send to #{url}, #{err}" if err?
+  return ERR "unexpected return code: #{rsp.statusCode}, for #{url}, body => #{body}" unless rsp.statusCode is 200
+  return
+
+
 PROCESS_COMPRESSED_DATA = (originalname, buffer, id, profile, req, res) ->
-  x = "#{buffer.length}"
+  received = (new Date!) - 0
+  buffer-size = buffer.length
+  x = "#{buffer-size}"
   INFO "#{profile.cyan}/#{id.yellow}/#{originalname.green} => receive #{x.magenta} bytes"
   result = bytes: buffer.length, id: id, profile: profile, filename: originalname
   (zerr, raw) <- zlib.gunzip buffer
@@ -149,6 +230,26 @@ PROCESS_COMPRESSED_DATA = (originalname, buffer, id, profile, req, res) ->
     INFO "#{profile.cyan}/#{id.yellow}/#{originalname.green} => transform to #{size.magenta} bytes (#{ratio.red}%)"
     DUMP_ITEMS ys
     SEND_TO_NEXT1 profile, id, ys
+    transformed = (new Date!) - 0
+    duration = transformed - received
+    metadata = {profile, id, received, transformed, duration}
+    da = new DataAggregator profile, id
+    da.update ys
+    ds = da.serialize!
+    ds = ["#\t#{(JSON.stringify metadata)}"] ++ ds
+    if global.argv.dump
+      [ console.log "\t#{d}" for d in ds ]
+    data = ds.join '\n'
+    size = "#{data.length}"
+    ratio = (data.length * 100 / raw-size).toFixed 2
+    INFO "#{profile.cyan}/#{id.yellow}/#{originalname.green} => compact to #{size.magenta} bytes (#{ratio.red}%)"
+    zs = new Buffer data
+    (err, bytes) <- zlib.gzip zs
+    return ERR "unexpected error when compressing #{profile}/#{id}/#{originalname}, err: #{err}" if err?
+    size = "#{bytes.length}"
+    ratio = (bytes.length * 100 / buffer-size).toFixed 2
+    INFO "#{profile.cyan}/#{id.yellow}/#{originalname.green} => compress to #{size.magenta} bytes (#{ratio.red}%)"
+    SEND_TO_NEXT2 profile, id, bytes
 
 
 PROCESS_JSON_GZ = (req, res) ->
@@ -175,12 +276,55 @@ PROCESS_JSON_GZ = (req, res) ->
     return PROCESS_COMPRESSED_DATA originalname, buffer, id, profile, req, res
 
 
+PROCESS_CSV_GZ = (req, res) ->
+  {file, params} = req
+  {id, profile} = params
+  return NG "invalid file upload form", -1, 400, req, res unless file?
+  {fieldname, originalname, size} = file
+  return NG "missing #{NS2_FIELD_NAME} field", -1, 400, req, res unless fieldname is NS2_FIELD_NAME
+  return if size is 0
+  {buffer} = file
+  file.buffer = null
+  return PROCESS_NEXT2 profile, id, buffer, size, req, res
+
+
 PROCESS_NEXT1 = (req, res) ->
   {body, params} = req
   {profile, id} = params
   INFO "next1-server => #{profile.cyan}/#{id.yellow}"
   res.end!
   return DUMP_ITEMS body
+
+
+PROCESS_NEXT2 = (profile, id, buffer, size, req, res) ->
+  now = new Date!
+  INFO "next2-server => #{profile.cyan}/#{id.yellow}: receive #{size} bytes"
+  (zerr, raw) <- zlib.gunzip buffer
+  if zerr?
+    message = "#{profile}/#{id}/#{originalname} decompression failure."
+    ERR zerr, message
+    return NG message, -2, 400, req, res
+  else
+    res.status 200 .end!
+    text = "#{raw}"
+    xs = text.split '\n'
+    [ console.log "\t#{x}" for x in xs ]
+    console.log "\t--------------------"
+    metadata = xs.shift!
+    for x in xs
+      [ms, shift1, p, ...kvs] = tokens = x.split '\t'
+      timestamp = parse-int ms
+      shift2 = now - timestamp
+      timestamp = new Date timestamp
+      timestamp = "#{moment timestamp .format 'MMM/DD HH:mm:ss.SSS'} (#{ms.gray})"
+      [board_type, board_id, sensor] = pathes = p.split '/'
+      ys = [''] ++ [timestamp, "#{board_type.green}/#{board_id.green}/#{sensor.green}"]
+      prefix = ys.join '\t'
+      ys = ["#{shift1}ms".yellow, "#{shift2}ms".magenta]
+      postfix = ys.join '\t'
+      ks = [ (k.split '=') for k in kvs ]
+      [ console.log "#{prefix}\t#{k[0].green}\t#{k[1].cyan}\t\t\t#{postfix}" for k in ks ]
+
 
 
 argv = global.argv = yargs
@@ -204,8 +348,8 @@ j = body-parser.json!
 web = express!
 web.set 'trust proxy', true
 web.post '/api/v1/hub/:id/:profile', (upload.single \sensor_data_gz), PROCESS_JSON_GZ
-
 web.post '/next1/:profile/:id', j, PROCESS_NEXT1
+web.post '/next2/:profile/:id', (upload.single NS2_FIELD_NAME), PROCESS_CSV_GZ
 
 HOST = \0.0.0.0
 PORT = argv.port
