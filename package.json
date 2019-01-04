@@ -23,19 +23,20 @@
     "test": "dms db delete sandbox && lsc -c ./tests/*.ls && ava --verbose"
   },
   "dependencies": {
-    "colors": "*",
     "async": "*",
-    "lodash": "*",
-    "yargs": "*",
-    "request": "*",
-    "express": "*",
-    "multer": "*",
-    "prettyjson": "*",
-    "moment-timezone": "*",
-    "bunyan-rotating-file-stream": "*",
+    "body-parser": "*",
     "bunyan-debug-stream": "*",
+    "bunyan-rotating-file-stream": "*",
+    "colors": "*",
+    "express": "*",
     "express-bunyan-logger": "*",
-    "body-parser": "*"
+    "lodash": "*",
+    "moment-timezone": "*",
+    "multer": "*",
+    "npm": "^6.5.0",
+    "prettyjson": "*",
+    "request": "^2.88.0",
+    "yargs": "*"
   },
   "devDependencies": {
     "ava": "^0.24.0"
