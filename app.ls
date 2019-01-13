@@ -156,6 +156,19 @@ DUMP_ITEMS = (items) ->
   [ console.error "\t#{z}" for z in zs ]
 
 
+SEND_TO_NEXT0 = (profile, id, file) ->
+  {NS0} = process.env
+  return unless NS0?
+  url = "#{NS0}/api/v1/hub/#{id}/#{profile}"
+  {fieldname, originalname, size, buffer, mimetype} = file
+  filename = originalname
+  data = sensor_data_gz: {value: buffer, options: {filename: filename, content-type: mimetype}}
+  opts = {url: url, form-data: data}
+  (err, rsp, body) <- request.post opts
+  return ERR "failed to send to #{url}, #{err}" if err?
+  return ERR "unexpected return code: #{rsp.statusCode}, for #{url}" unless rsp.statusCode is 200
+
+
 SEND_TO_NEXT1 = (profile, id, items) ->
   {NS1} = process.env
   return unless NS1?
@@ -272,8 +285,11 @@ PROCESS_JSON_GZ = (req, res) ->
     return NG message, -4, 200, req, res
   else
     {buffer} = file
+	# file.buffer = null
+    PROCESS_COMPRESSED_DATA originalname, buffer, id, profile, req, res
+    SEND_TO_NEXT0 profile, id, file
     file.buffer = null
-    return PROCESS_COMPRESSED_DATA originalname, buffer, id, profile, req, res
+
 
 
 PROCESS_CSV_GZ = (req, res) ->
